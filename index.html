@@ -38,8 +38,17 @@ if ! xcode-select -p >/dev/null 2>&1; then
 fi
 
 log "Homebrew"
-command -v brew >/dev/null || \
+if ! command -v brew >/dev/null; then
+	# NONINTERACTIVE makes the installer probe with `sudo -n`, which fails outright
+	# when no credential is cached, so cache one first and keep it warm.
+	sudo -v
+	while true; do sudo -n true; sleep 50; done 2>/dev/null &
+	sudo_keepalive=$!
+	trap 'kill "$sudo_keepalive" 2>/dev/null || true' EXIT
 	NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+	kill "$sudo_keepalive" 2>/dev/null || true
+	trap - EXIT
+fi
 eval "$(/opt/homebrew/bin/brew shellenv)"
 
 log "GitHub CLI"

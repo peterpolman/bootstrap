@@ -2,7 +2,7 @@
 # Bootstrap a new Mac: Homebrew + gh, authenticate, clone the private dotfiles
 # repo to ~/.config, then hand over to its install.sh.
 #
-#   curl -fsSL dot.peterpolman.nl/mac.sh | bash
+#   bash -c "$(curl -fsSL dot.peterpolman.nl)"
 #
 # Idempotent: safe to re-run.
 set -euo pipefail
@@ -14,11 +14,28 @@ log() { printf '\033[35m==>\033[0m %s\n' "$1"; }
 [ "$(uname -s)" = "Darwin" ] || { echo "macOS only"; exit 1; }
 
 log "Xcode command line tools"
-xcode-select -p >/dev/null 2>&1 || {
-	xcode-select --install
-	echo "    finish the Xcode CLT install, then re-run this script"
-	exit 0
-}
+if ! xcode-select -p >/dev/null 2>&1; then
+	# Ask softwareupdate for the CLT package by name, no GUI, no second run.
+	touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+	label=$(softwareupdate -l 2>/dev/null \
+		| grep -oE 'Command Line Tools for Xcode-[0-9.]+' | sort -V | tail -1)
+	if [ -n "$label" ]; then
+		echo "    installing $label (a few minutes, needs your password)"
+		sudo softwareupdate -i "$label"
+	else
+		echo "    falling back to the GUI installer, click through it"
+		xcode-select --install 2>/dev/null || true
+	fi
+	rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+	# Either path is asynchronous; wait it out rather than failing.
+	waited=0
+	until xcode-select -p >/dev/null 2>&1; do
+		[ "$waited" -ge 1800 ] && { echo "timed out waiting for the CLT install"; exit 1; }
+		sleep 10
+		waited=$((waited + 10))
+	done
+	echo "    installed"
+fi
 
 log "Homebrew"
 command -v brew >/dev/null || \
